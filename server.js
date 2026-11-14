@@ -1,11 +1,14 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Resend } from 'resend';
 
-const express = require('express');
-const nodemailer = require('nodemailer');
-const path = require('node:path');
+dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const root = path.dirname(fileURLToPath(import.meta.url));
 
 app.use(express.urlencoded({ extended: false, limit: '20kb' }));
 
@@ -22,7 +25,7 @@ for (const directory of [
     'Water Waves',
     'js'
 ]) {
-    app.use(`/${directory}`, express.static(path.join(__dirname, directory)));
+    app.use(`/${directory}`, express.static(path.join(root, directory)));
 }
 
 function escapeHtml(value) {
@@ -52,55 +55,15 @@ function respond(req, res, status, title, message) {
     );
 }
 
-function getMailConfig() {
-    const host = (process.env.SMTP_HOST || '').trim();
-    const rawPort = (process.env.SMTP_PORT || '').trim();
-    const smtpPort = Number(rawPort);
-    const username = (process.env.SMTP_USER || '').trim();
-    const password = (process.env.SMTP_PASS || '').trim();
-    const fromAddress = (process.env.MAIL_FROM || '').trim();
-    const toAddresses = (process.env.MAIL_TO || '')
-        .split(',')
-        .map((address) => address.trim())
-        .filter(Boolean);
-    const secureSetting = (process.env.SMTP_SECURE || '').trim().toLowerCase();
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (
-        !host
-        || !/^\d+$/.test(rawPort)
-        || !Number.isInteger(smtpPort)
-        || smtpPort < 1
-        || smtpPort > 65535
-        || !username
-        || !password
-        || !emailPattern.test(fromAddress)
-        || toAddresses.length === 0
-        || toAddresses.some((address) => !emailPattern.test(address))
-        || !['', 'true', 'ssl', 'tls', 'starttls'].includes(secureSetting)
-    ) {
-        return null;
-    }
-
-    return {
-        host,
-        port: smtpPort,
-        secure: secureSetting === 'true' || secureSetting === 'ssl',
-        requireTLS: secureSetting === 'tls' || secureSetting === 'starttls',
-        auth: { user: username, pass: password },
-        from: {
-            address: fromAddress,
-            name: (process.env.MAIL_FROM_NAME || '').trim() || 'Contact Form'
-        },
-        to: toAddresses
-    };
-}
-
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(root, 'index.html'));
 });
 
 app.post('/submit', async (req, res) => {
+    if (typeof req.body['bot-field'] === 'string' && req.body['bot-field'].trim()) {
+        return respond(req, res, 400, 'Invalid submission', 'Please submit the form without filling hidden fields.');
+    }
+
     const fields = {};
     for (const field of ['email', 'phone', 'message']) {
         if (typeof req.body[field] !== 'string') {
@@ -133,9 +96,14 @@ app.post('/submit', async (req, res) => {
         return respond(req, res, 400, 'Invalid submission', 'Please enter valid details and complete every field.');
     }
 
-    const config = getMailConfig();
-    if (!config) {
-        console.error('Contact form email configuration is incomplete or invalid.');
+    const apiKey = (process.env.RESEND_API_KEY || '').trim();
+    const fromAddress = (process.env.MAIL_FROM || 'onboarding@resend.dev').trim();
+    const toAddresses = (process.env.MAIL_TO || 'info.techiemen.go@gmail.com')
+        .split(',')
+        .map((address) => address.trim())
+        .filter(Boolean);
+    if (!apiKey || !emailPattern.test(fromAddress) || !toAddresses.length || toAddresses.some((address) => !emailPattern.test(address))) {
+        console.error('Contact form Resend configuration is incomplete or invalid.');
         return respond(req, res, 500, 'Unable to send message', 'The email service is not configured correctly. Please try again later.');
     }
 
@@ -143,23 +111,24 @@ app.post('/submit', async (req, res) => {
     const safePhone = escapeHtml(fields.phone);
     const safeBudget = escapeHtml(budget || 'Not specified');
     const safeMessage = escapeHtml(fields.message).replace(/\r?\n/g, '<br>');
-    const transporter = nodemailer.createTransport({
-        host: config.host,
-        port: config.port,
-        secure: config.secure,
-        requireTLS: config.requireTLS,
-        auth: config.auth
-    });
+    const fromName = (process.env.MAIL_FROM_NAME || '').trim();
+    const from = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+    const resend = new Resend(apiKey);
 
     try {
-        await transporter.sendMail({
-            from: { name: config.from.name, address: config.from.address },
-            to: config.to,
-            replyTo: { address: fields.email },
+        const { error } = await resend.emails.send({
+            from,
+            to: toAddresses,
+            replyTo: fields.email,
             subject: 'Portfolio contact form inquiry',
             text: `Email: ${fields.email}\nPhone: ${fields.phone}\nBudget: ${budget || 'Not specified'}\n\n${fields.message}`,
             html: `<p><strong>Email:</strong> ${safeEmail}</p><p><strong>Phone:</strong> ${safePhone}</p><p><strong>Budget:</strong> ${safeBudget}</p><p><strong>Message:</strong><br>${safeMessage}</p>`
         });
+
+        if (error) {
+            console.error('Contact form email failed:', error.message);
+            return respond(req, res, 500, 'Unable to send message', 'Your message could not be sent right now. Please try again later.');
+        }
     } catch (error) {
         console.error('Contact form email failed:', error.message);
         return respond(req, res, 500, 'Unable to send message', 'Your message could not be sent right now. Please try again later.');

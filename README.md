@@ -43,31 +43,32 @@ Welcome to my personal portfolio website showcasing my professional work and ski
 ### Contact form email setup
 
 The homepage and its assets are served by the Node.js server. The contact form
-posts to its `/submit` endpoint, which uses Nodemailer to send messages over
-SMTP. Install dependencies and start the site locally:
+posts to its `/submit` endpoint, which sends messages through Resend. Install
+dependencies and start the site locally:
 
 ```bash
 npm install
 ```
 
-Create a `.env` file in the project root with your SMTP settings, then run:
+Create a `.env` file in the project root with your Resend API key and email
+settings, then run:
 
 ```bash
 npm start
 ```
 
 Open `http://localhost:3000`. Deploy the site to a Node.js host that runs
-`npm start`; a static-only host cannot run the SMTP server. Configure these
-environment variables on your Node.js host:
+`npm start`; a static-only host cannot run the contact form server. Configure
+these environment variables on your Node.js host:
 
-- `SMTP_HOST`, `SMTP_PORT`, and `SMTP_SECURE`
-- `SMTP_USER` and `SMTP_PASS` (use an app password where required by your provider)
-- `MAIL_FROM` (a sender address authorized by your SMTP provider)
-- `MAIL_TO` (the recipient inbox; separate multiple addresses with commas)
+- `RESEND_API_KEY` (keep this secret and only configure it on the server)
+- `MAIL_FROM` (a sender address authorized by Resend; defaults to `onboarding@resend.dev`)
+- `MAIL_TO` (the recipient inbox; defaults to `info.techiemen.go@gmail.com`; separate multiple addresses with commas)
 - `MAIL_FROM_NAME` (optional sender display name)
 - `PORT` (optional; defaults to `3000`)
 
-Never commit `.env` or expose SMTP credentials in browser code.
+Never commit `.env` or expose the Resend API key in browser code. To send from
+a custom address, verify its domain with Resend and set `MAIL_FROM` accordingly.
 
 ## 📄 Resume
 
